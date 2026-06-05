@@ -36,25 +36,14 @@ export async function POST(
     return Response.json({ error: "Poll option not found" }, { status: 404 });
   }
 
-  const { error } = await supabase.from("poll_votes").insert({
-    poll_id: pollId,
-    option_id: optionId,
-    voter_id: voterId,
-  });
-
-  if (error?.code === "23505") {
-    const { data: vote } = await supabase
-      .from("poll_votes")
-      .select("option_id")
-      .eq("poll_id", pollId)
-      .eq("voter_id", voterId)
-      .maybeSingle();
-    const poll = await getPollById(pollId);
-    return Response.json(
-      { error: "already voted", poll, selectedOptionId: vote?.option_id },
-      { status: 409 }
-    );
-  }
+  const { error } = await supabase.from("poll_votes").upsert(
+    {
+      poll_id: pollId,
+      option_id: optionId,
+      voter_id: voterId,
+    },
+    { onConflict: "poll_id,voter_id" }
+  );
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 });
@@ -62,4 +51,29 @@ export async function POST(
 
   const poll = await getPollById(pollId);
   return Response.json({ ok: true, poll, selectedOptionId: optionId });
+}
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: pollId } = await params;
+  const { voterId } = await req.json();
+
+  if (!pollId || typeof voterId !== "string" || !voterId.trim()) {
+    return Response.json({ error: "Poll and voter id are required" }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from("poll_votes")
+    .delete()
+    .eq("poll_id", pollId)
+    .eq("voter_id", voterId);
+
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+
+  const poll = await getPollById(pollId);
+  return Response.json({ ok: true, poll, selectedOptionId: null });
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -13,21 +14,28 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Live Q&A",
-  description: "Ask and upvote questions",
+  title: "reddit - r/kealvi",
+  description: "A Reddit-style Q&A community feed",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = await cookies();
+  const cookieTheme = cookieStore.get("kealvi_theme")?.value;
+  const theme =
+    cookieTheme === "dark" || cookieTheme === "light" ? cookieTheme : undefined;
+
   return (
     <html
       lang="en"
+      data-theme={theme}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body>{children}</body>
+      <body className="min-h-full">{children}</body>
     </html>
   );
 }

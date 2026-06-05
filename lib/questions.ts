@@ -13,6 +13,7 @@ export async function getQuestionsPage(offset: number, limit: number) {
     id: q.id,
     body: q.body,
     author: q.author,
+    createdAt: q.created_at,
     votes: q.votes?.[0]?.count ?? 0,
   }));
 
@@ -33,6 +34,7 @@ export async function searchQuestions(q: string, limit: number) {
     id: row.id,
     body: row.body,
     author: row.author,
+    createdAt: row.created_at,
     votes: row.votes?.[0]?.count ?? 0,
   }));
 }

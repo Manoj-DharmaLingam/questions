@@ -1,8 +1,75 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #dae0e6;
+  --foreground: #1a1a1b;
+
+  --reddit-bg: #dae0e6;
+  --reddit-card: #ffffff;
+  --reddit-card-muted: #f6f7f8;
+  --reddit-border: #cccccc;
+  --reddit-border-soft: #edeff1;
+  --reddit-text: #1a1a1b;
+  --reddit-muted: #787c7e;
+  --reddit-blue: #0079d3;
+  --reddit-orange: #ff4500;
+  --reddit-hover: #898989;
+
+  --reddit-danger-bg: #fef2f2;
+  --reddit-danger-border: #fca5a5;
+  --reddit-danger-text: #b91c1c;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --background: #030303;
+    --foreground: #d7dadc;
+
+    --reddit-bg: #030303;
+    --reddit-card: #1a1a1b;
+    --reddit-card-muted: #272729;
+    --reddit-border: #343536;
+    --reddit-border-soft: #343536;
+    --reddit-text: #d7dadc;
+    --reddit-muted: #818384;
+    --reddit-blue: #24a0ed;
+    --reddit-orange: #ff8717;
+    --reddit-hover: #666666;
+
+    --reddit-danger-bg: #450a0a;
+    --reddit-danger-border: #7f1d1d;
+    --reddit-danger-text: #fecaca;
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --background: #030303;
+  --foreground: #d7dadc;
+
+  --reddit-bg: #030303;
+  --reddit-card: #1a1a1b;
+  --reddit-card-muted: #272729;
+  --reddit-border: #343536;
+  --reddit-border-soft: #343536;
+  --reddit-text: #d7dadc;
+  --reddit-muted: #818384;
+  --reddit-blue: #24a0ed;
+  --reddit-orange: #ff8717;
+  --reddit-hover: #666666;
+
+  --reddit-danger-bg: #450a0a;
+  --reddit-danger-border: #7f1d1d;
+  --reddit-danger-text: #fecaca;
+
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -15,4 +82,9 @@
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+button,
+input {
+  font: inherit;
 }

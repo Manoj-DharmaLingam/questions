@@ -68,3 +68,22 @@ export function markPollVoted(pollId: string, optionId: string) {
   votes[pollId] = optionId;
   localStorage.setItem(VOTED_POLLS_KEY, JSON.stringify(votes));
 }
+
+export function clearPollVote(pollId: string) {
+  if (typeof localStorage === "undefined") return;
+
+  const raw = localStorage.getItem(VOTED_POLLS_KEY);
+  let votes: Record<string, string> = {};
+
+  try {
+    const parsed = raw ? JSON.parse(raw) : {};
+    votes = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    votes = {};
+  }
+
+  delete votes[pollId];
+  localStorage.setItem(VOTED_POLLS_KEY, JSON.stringify(votes));
+}
