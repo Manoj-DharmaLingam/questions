@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "reddit - r/kealvi",
-  description: "A Reddit-style Q&A community feed",
+  title: "kealvi",
+  description: "Q&A feed",
 };
 
 export default async function RootLayout({

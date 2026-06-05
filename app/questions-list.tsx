@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   getVotedQuestionIds,
   getVoterId,
@@ -15,7 +21,18 @@ type Question = {
   createdAt?: string | null;
 };
 
+type User = {
+  username: string;
+  email: string;
+};
+
 type FeedSort = "hot" | "new" | "top";
+type FeedView = "Home" | "Popular" | "Explore" | "All" | "Saved" | "Hidden";
+
+const COMMENTS_KEY = "kealvi_comments";
+const SAVED_KEY = "kealvi_saved_posts";
+const HIDDEN_KEY = "kealvi_hidden_posts";
+const DOWNVOTED_KEY = "kealvi_downvoted_posts";
 
 function getQuestionVoteSnapshot() {
   return getVotedQuestionIds().join("\n");
@@ -29,6 +46,38 @@ function subscribeToQuestionVoteChanges(onStoreChange: () => void) {
     window.removeEventListener("storage", onStoreChange);
     window.removeEventListener("question-vote", onStoreChange);
   };
+}
+
+function readStringArray(key: string) {
+  if (typeof localStorage === "undefined") return [];
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStringArray(key: string, value: Set<string>) {
+  if (typeof localStorage === "undefined") return;
+
+  localStorage.setItem(key, JSON.stringify([...value]));
+}
+
+function readComments(): Record<string, string[]> {
+  if (typeof localStorage === "undefined") return {};
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(COMMENTS_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 function formatAge(value?: string | null) {
@@ -50,15 +99,27 @@ function formatAge(value?: string | null) {
 export default function QuestionsList({
   initialQuestions,
   initialHasMore,
+  currentUser,
+  activeView,
+  activeCommunity,
+  externalQuery,
+  createSignal,
+  onRequireAuth,
 }: {
   initialQuestions: Question[];
   initialHasMore: boolean;
+  currentUser: User | null;
+  activeView: FeedView;
+  activeCommunity: string;
+  externalQuery: string;
+  createSignal: number;
+  onRequireAuth: () => boolean;
 }) {
+  const createInputRef = useRef<HTMLInputElement>(null);
   const [questions, setQuestions] = useState(initialQuestions);
   const [draft, setDraft] = useState("");
-  const [authorDraft, setAuthorDraft] = useState("");
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<FeedSort>("hot");
+  const [query, setQuery] = useState(externalQuery);
+  const [manualSort, setManualSort] = useState<FeedSort>("hot");
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loading, setLoading] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -68,9 +129,18 @@ export default function QuestionsList({
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
     {}
   );
-  const [comments, setComments] = useState<Record<string, string[]>>({});
-  const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set());
+  const [comments, setComments] = useState<Record<string, string[]>>(() =>
+    readComments()
+  );
+  const [savedIds, setSavedIds] = useState<Set<string>>(
+    () => new Set(readStringArray(SAVED_KEY))
+  );
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(
+    () => new Set(readStringArray(HIDDEN_KEY))
+  );
+  const [downvotedIds, setDownvotedIds] = useState<Set<string>>(
+    () => new Set(readStringArray(DOWNVOTED_KEY))
+  );
   const [shareMessage, setShareMessage] = useState<string | null>(null);
   const savedVotedQuestionIds = useSyncExternalStore(
     subscribeToQuestionVoteChanges,
@@ -83,17 +153,30 @@ export default function QuestionsList({
   const [pendingVoteIds, setPendingVoteIds] = useState<Set<string>>(
     () => new Set()
   );
-  const [voteError, setVoteError] = useState<string | null>(null);
+  const [feedMessage, setFeedMessage] = useState<string | null>(null);
 
+  const effectiveQuery = externalQuery || query;
+  const sort: FeedSort =
+    activeView === "Popular"
+      ? "top"
+      : activeView === "Explore"
+        ? "new"
+        : manualSort;
   const votedQuestionIds = new Set([
     ...(savedVotedQuestionIds ? savedVotedQuestionIds.split("\n") : []),
     ...selectedQuestionIds,
   ]);
 
   useEffect(() => {
+    if (createSignal === 0) return;
+    createInputRef.current?.focus();
+    createInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [createSignal]);
+
+  useEffect(() => {
     const id = setTimeout(async () => {
-      const url = query
-        ? `/api/questions?q=${encodeURIComponent(query)}`
+      const url = effectiveQuery
+        ? `/api/questions?q=${encodeURIComponent(effectiveQuery)}`
         : `/api/questions`;
       const res = await fetch(url);
       const data = await res.json();
@@ -102,12 +185,20 @@ export default function QuestionsList({
     }, 300);
 
     return () => clearTimeout(id);
-  }, [query]);
+  }, [effectiveQuery]);
 
   const visibleQuestions = useMemo(() => {
-    const visible = questions.filter((question) => !hiddenIds.has(question.id));
+    let visible = [...questions];
 
-    return [...visible].sort((a, b) => {
+    if (activeView === "Saved") {
+      visible = visible.filter((question) => savedIds.has(question.id));
+    } else if (activeView === "Hidden") {
+      visible = visible.filter((question) => hiddenIds.has(question.id));
+    } else {
+      visible = visible.filter((question) => !hiddenIds.has(question.id));
+    }
+
+    return visible.sort((a, b) => {
       if (sort === "top") return b.votes - a.votes;
 
       const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -116,13 +207,14 @@ export default function QuestionsList({
       if (sort === "new") return bTime - aTime;
       return b.votes * 2 + bTime / 100000000 - (a.votes * 2 + aTime / 100000000);
     });
-  }, [hiddenIds, questions, sort]);
+  }, [activeView, hiddenIds, questions, savedIds, sort]);
 
   async function submit() {
     if (!draft.trim() || posting) return;
+    if (!onRequireAuth()) return;
 
     setPosting(true);
-    setVoteError(null);
+    setFeedMessage(null);
 
     try {
       const res = await fetch("/api/questions", {
@@ -130,13 +222,13 @@ export default function QuestionsList({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           body: draft,
-          author: authorDraft.trim() || "kealvi_user",
+          author: currentUser?.username ?? "kealvi_user",
         }),
       });
       const created = await res.json();
 
       if (!res.ok) {
-        setVoteError(created.error ?? "Could not create your post.");
+        setFeedMessage(created.error ?? "Could not create your post.");
         return;
       }
 
@@ -151,20 +243,27 @@ export default function QuestionsList({
         ...qs,
       ]);
       setDraft("");
-      setAuthorDraft("");
-      setSort("new");
+      setManualSort("new");
+      setFeedMessage("Post created.");
     } catch {
-      setVoteError("Could not create your post. Please try again.");
+      setFeedMessage("Could not create your post. Please try again.");
     } finally {
       setPosting(false);
     }
   }
 
   async function upvote(id: string) {
+    if (!onRequireAuth()) return;
     if (votedQuestionIds.has(id) || pendingVoteIds.has(id)) return;
 
-    setVoteError(null);
+    setFeedMessage(null);
     setPendingVoteIds((ids) => new Set(ids).add(id));
+    setDownvotedIds((ids) => {
+      const next = new Set(ids);
+      next.delete(id);
+      saveStringArray(DOWNVOTED_KEY, next);
+      return next;
+    });
 
     setQuestions((qs) =>
       qs.map((q) => (q.id === id ? { ...q, votes: q.votes + 1 } : q))
@@ -209,12 +308,12 @@ export default function QuestionsList({
         setSelectedQuestionIds((ids) => new Set(ids).add(id));
       }
 
-      setVoteError(data.error ?? "Could not record your vote.");
+      setFeedMessage(data.error ?? "Could not record your vote.");
     } catch {
       setQuestions((qs) =>
         qs.map((q) => (q.id === id ? { ...q, votes: q.votes - 1 } : q))
       );
-      setVoteError("Could not record your vote. Please try again.");
+      setFeedMessage("Could not record your vote. Please try again.");
     } finally {
       setPendingVoteIds((ids) => {
         const next = new Set(ids);
@@ -224,7 +323,38 @@ export default function QuestionsList({
     }
   }
 
+  function downvote(id: string) {
+    if (!onRequireAuth()) return;
+    if (votedQuestionIds.has(id)) {
+      setFeedMessage("You already upvoted this post.");
+      return;
+    }
+
+    setDownvotedIds((ids) => {
+      const next = new Set(ids);
+      const alreadyDownvoted = next.has(id);
+
+      if (alreadyDownvoted) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+
+      saveStringArray(DOWNVOTED_KEY, next);
+      setQuestions((qs) =>
+        qs.map((q) =>
+          q.id === id
+            ? { ...q, votes: q.votes + (alreadyDownvoted ? 1 : -1) }
+            : q
+        )
+      );
+      return next;
+    });
+  }
+
   function toggleSaved(id: string) {
+    if (!onRequireAuth()) return;
+
     setSavedIds((ids) => {
       const next = new Set(ids);
       if (next.has(id)) {
@@ -232,6 +362,7 @@ export default function QuestionsList({
       } else {
         next.add(id);
       }
+      saveStringArray(SAVED_KEY, next);
       return next;
     });
   }
@@ -249,14 +380,38 @@ export default function QuestionsList({
     window.setTimeout(() => setShareMessage(null), 2500);
   }
 
+  function toggleHidden(id: string) {
+    if (!onRequireAuth()) return;
+
+    setHiddenIds((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      saveStringArray(HIDDEN_KEY, next);
+      return next;
+    });
+  }
+
   function submitComment(id: string) {
+    if (!onRequireAuth()) return;
+
     const comment = commentDrafts[id]?.trim();
     if (!comment) return;
 
-    setComments((items) => ({
-      ...items,
-      [id]: [comment, ...(items[id] ?? [])],
-    }));
+    setComments((items) => {
+      const next = {
+        ...items,
+        [id]: [
+          `${currentUser?.username ?? "local_user"}: ${comment}`,
+          ...(items[id] ?? []),
+        ],
+      };
+      localStorage.setItem(COMMENTS_KEY, JSON.stringify(next));
+      return next;
+    });
     setCommentDrafts((items) => ({ ...items, [id]: "" }));
   }
 
@@ -274,22 +429,25 @@ export default function QuestionsList({
       <div className="rounded-md border border-[var(--reddit-border)] bg-[var(--reddit-card)] p-3">
         <div className="flex gap-2">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--reddit-card-muted)] font-bold text-[var(--reddit-muted)]">
-            u/
+            kealvi
           </div>
           <div className="min-w-0 flex-1 space-y-2">
             <input
+              ref={createInputRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Create Post"
+              onFocus={() => {
+                if (!currentUser) onRequireAuth();
+              }}
+              placeholder={
+                currentUser ? `Create Post in ${activeCommunity}` : "Log in to create a post"
+              }
               className="w-full rounded-md border border-[var(--reddit-border-soft)] bg-[var(--reddit-card-muted)] px-3 py-2 text-[var(--reddit-text)] outline-none placeholder:text-[var(--reddit-muted)] focus:border-[var(--reddit-blue)]"
             />
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                value={authorDraft}
-                onChange={(e) => setAuthorDraft(e.target.value)}
-                placeholder="Username"
-                className="min-w-0 flex-1 rounded-md border border-[var(--reddit-border-soft)] bg-[var(--reddit-card)] px-3 py-2 text-sm text-[var(--reddit-text)] outline-none placeholder:text-[var(--reddit-muted)] focus:border-[var(--reddit-blue)]"
-              />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-[var(--reddit-muted)]">
+                Posting as {currentUser ? `${currentUser.username}` : "guest"}
+              </p>
               <button
                 onClick={submit}
                 disabled={!draft.trim() || posting}
@@ -308,7 +466,7 @@ export default function QuestionsList({
             {(["hot", "new", "top"] as FeedSort[]).map((item) => (
               <button
                 key={item}
-                onClick={() => setSort(item)}
+                onClick={() => setManualSort(item)}
                 className={`rounded-full px-4 py-2 text-sm font-bold capitalize ${
                   sort === item
                     ? "bg-[var(--reddit-card-muted)] text-[var(--reddit-blue)]"
@@ -326,11 +484,15 @@ export default function QuestionsList({
             className="w-full rounded-full border border-[var(--reddit-border-soft)] bg-[var(--reddit-card-muted)] px-4 py-2 text-sm text-[var(--reddit-text)] outline-none placeholder:text-[var(--reddit-muted)] focus:border-[var(--reddit-blue)] md:max-w-xs"
           />
         </div>
+        <p className="mt-2 text-xs text-[var(--reddit-muted)]">
+          {activeView} in {activeCommunity}
+          {effectiveQuery ? ` - searching "${effectiveQuery}"` : ""}
+        </p>
       </div>
 
-      {(voteError || shareMessage) && (
+      {(feedMessage || shareMessage) && (
         <p className="rounded-md border border-[var(--reddit-border)] bg-[var(--reddit-card)] px-3 py-2 text-sm text-[var(--reddit-muted)]">
-          {voteError ?? shareMessage}
+          {feedMessage ?? shareMessage}
         </p>
       )}
 
@@ -339,6 +501,8 @@ export default function QuestionsList({
           const voted = votedQuestionIds.has(q.id);
           const voting = pendingVoteIds.has(q.id);
           const saved = savedIds.has(q.id);
+          const hidden = hiddenIds.has(q.id);
+          const downvoted = downvotedIds.has(q.id);
           const commentCount = comments[q.id]?.length ?? 0;
           const commentsOpen = expandedCommentId === q.id;
 
@@ -368,10 +532,16 @@ export default function QuestionsList({
                 </button>
                 <span className="py-1 text-xs font-bold">{q.votes}</span>
                 <button
-                  disabled
-                  aria-label="Downvote unavailable"
-                  title="Downvote unavailable"
-                  className="h-7 w-7 rounded text-lg leading-none text-[var(--reddit-muted)] opacity-45"
+                  onClick={() => downvote(q.id)}
+                  disabled={voted}
+                  aria-pressed={downvoted}
+                  aria-label="Downvote post"
+                  title="Downvote"
+                  className={`h-7 w-7 rounded text-lg leading-none ${
+                    downvoted
+                      ? "text-[var(--reddit-blue)]"
+                      : "text-[var(--reddit-muted)] hover:bg-[var(--reddit-card)] hover:text-[var(--reddit-blue)]"
+                  } disabled:opacity-45`}
                 >
                   v
                 </button>
@@ -379,9 +549,11 @@ export default function QuestionsList({
 
               <article className="min-w-0 p-3">
                 <p className="mb-2 text-xs text-[var(--reddit-muted)]">
-                  <span className="font-bold text-[var(--reddit-text)]">r/kealvi</span>
+                  <span className="font-bold text-[var(--reddit-text)]">
+                    {activeCommunity}
+                  </span>
                   {" posted by "}
-                  <span>u/{q.author || "anonymous"}</span>
+                  <span>{q.author || "anonymous"}</span>
                   {" - "}
                   <span>{formatAge(q.createdAt)}</span>
                 </p>
@@ -411,12 +583,10 @@ export default function QuestionsList({
                     {saved ? "Saved" : "Save"}
                   </button>
                   <button
-                    onClick={() =>
-                      setHiddenIds((ids) => new Set(ids).add(q.id))
-                    }
+                    onClick={() => toggleHidden(q.id)}
                     className="rounded px-2 py-1 hover:bg-[var(--reddit-card-muted)]"
                   >
-                    Hide
+                    {hidden ? "Unhide" : "Hide"}
                   </button>
                 </div>
 
@@ -425,13 +595,18 @@ export default function QuestionsList({
                     <div className="flex gap-2">
                       <input
                         value={commentDrafts[q.id] ?? ""}
+                        onFocus={() => {
+                          if (!currentUser) onRequireAuth();
+                        }}
                         onChange={(e) =>
                           setCommentDrafts((drafts) => ({
                             ...drafts,
                             [q.id]: e.target.value,
                           }))
                         }
-                        placeholder="Add a comment"
+                        placeholder={
+                          currentUser ? "Add a comment" : "Log in to comment"
+                        }
                         className="min-w-0 flex-1 rounded-md border border-[var(--reddit-border-soft)] bg-[var(--reddit-card-muted)] px-3 py-2 text-sm outline-none placeholder:text-[var(--reddit-muted)] focus:border-[var(--reddit-blue)]"
                       />
                       <button
@@ -441,17 +616,20 @@ export default function QuestionsList({
                         Reply
                       </button>
                     </div>
-                    {(comments[q.id] ?? []).map((comment, index) => (
-                      <div
-                        key={`${q.id}-${index}`}
-                        className="border-l-2 border-[var(--reddit-border-soft)] pl-3 text-sm"
-                      >
-                        <p className="mb-1 text-xs font-bold text-[var(--reddit-muted)]">
-                          u/local_commenter
-                        </p>
-                        <p>{comment}</p>
-                      </div>
-                    ))}
+                    {(comments[q.id] ?? []).map((comment, index) => {
+                      const [name, ...bodyParts] = comment.split(": ");
+                      return (
+                        <div
+                          key={`${q.id}-${index}`}
+                          className="border-l-2 border-[var(--reddit-border-soft)] pl-3 text-sm"
+                        >
+                          <p className="mb-1 text-xs font-bold text-[var(--reddit-muted)]">
+                            {name}
+                          </p>
+                          <p>{bodyParts.join(": ")}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </article>
@@ -466,7 +644,7 @@ export default function QuestionsList({
         </div>
       )}
 
-      {hasMore && !query && (
+      {hasMore && !effectiveQuery && activeView !== "Saved" && activeView !== "Hidden" && (
         <button
           onClick={loadMore}
           disabled={loading}
