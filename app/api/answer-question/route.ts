@@ -4,6 +4,7 @@ type GeminiTextPart = {
 
 type GeminiResponse = {
   candidates?: Array<{
+    finishReason?: string;
     content?: {
       parts?: GeminiTextPart[];
     };
@@ -27,9 +28,13 @@ function getAnswerText(data: GeminiResponse) {
 function cleanAnswer(value: string) {
   return value
     .replace(/^["'`]+|["'`]+$/g, "")
-    .replace(/^(answer|ai answer|comment)\s*:\s*/i, "")
+    .replace(/^(answer|ai answer|comment|better answer)\s*:\s*/i, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function looksComplete(value: string) {
+  return /[.!?)]$/.test(value.trim());
 }
 
 export async function POST(req: Request) {
@@ -72,13 +77,29 @@ export async function POST(req: Request) {
           parts: [
             {
               text: [
-                "Write a helpful comment that answers this community question.",
-                "The answer should be appropriate to the exact question, practical, and easy to understand.",
-                "If the question is about code or setup, give the likely cause and the next step to try.",
-                "If the question is unclear, answer the most likely meaning and mention what detail would help.",
-                "Do not pretend to know facts that are not in the question.",
-                "Keep it friendly and concise: 2 to 5 short sentences.",
-                "Return only the comment text. No markdown heading, no label, no signature.",
+                "You write useful answers for a beginner-friendly Q&A community.",
+                "Answer the exact question in a complete, practical comment.",
+                "",
+                "Rules:",
+                "- Start with the direct answer, not filler.",
+                "- Give enough detail that the user can take the next step.",
+                "- If it is a how-to question, include the main steps in plain language.",
+                "- If it is a coding/setup question, mention the likely cause and what to check next.",
+                "- If the question is broad, give a short recommended path instead of a vague answer.",
+                "- Do not stop mid-sentence. End with a complete final sentence.",
+                "- Do not add unsupported facts or pretend you saw the user's files.",
+                "- Keep it friendly and concise: 3 to 6 sentences.",
+                "- Return only the comment text. No heading, label, signature, bullets, or markdown.",
+                "",
+                "Examples:",
+                "Question: How do I deploy to Vercel?",
+                "Comment: Push your project to GitHub, then import that repository in Vercel. Vercel will usually detect Next.js automatically, so you can keep the default build settings. Add any required environment variables in the Vercel project settings before deploying. After the first deploy, future pushes to your main branch will redeploy automatically.",
+                "",
+                "Question: Why is my Gemini API key not working in Next.js?",
+                "Comment: Make sure the key is stored in an environment variable on the server, such as GEMINI_API_KEY, and that you restarted the dev server after editing .env. Do not call Gemini directly from a client component because that exposes the key. Use a route handler to call Gemini, then call that route from the UI.",
+                "",
+                "Question: How can I make each user vote only once in Supabase?",
+                "Comment: Store each vote with both the question ID and a stable user or voter ID. Add a unique constraint on those two columns so the database rejects duplicate votes. Then handle that duplicate error in your API route and show a friendly message to the user.",
                 "",
                 `Question: ${rawQuestion}`,
                 "Comment:",
@@ -88,9 +109,9 @@ export async function POST(req: Request) {
         },
       ],
       generationConfig: {
-        temperature: 0.45,
+        temperature: 0.35,
         topP: 0.85,
-        maxOutputTokens: 180,
+        maxOutputTokens: 320,
       },
     }),
   });
@@ -109,6 +130,13 @@ export async function POST(req: Request) {
   if (!answer) {
     return Response.json(
       { error: "Gemini returned an empty answer." },
+      { status: 502 }
+    );
+  }
+
+  if (data.candidates?.[0]?.finishReason === "MAX_TOKENS" || !looksComplete(answer)) {
+    return Response.json(
+      { error: "Gemini returned an incomplete answer. Please try again." },
       { status: 502 }
     );
   }
