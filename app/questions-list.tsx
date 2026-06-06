@@ -154,6 +154,9 @@ export default function QuestionsList({
   const [pendingVoteIds, setPendingVoteIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [answeringQuestionIds, setAnsweringQuestionIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [feedMessage, setFeedMessage] = useState<string | null>(null);
 
   const effectiveQuery = externalQuery || query;
@@ -453,6 +456,51 @@ export default function QuestionsList({
     setCommentDrafts((items) => ({ ...items, [id]: "" }));
   }
 
+  async function addAiAnswer(question: Question) {
+    if (!onRequireAuth()) return;
+    if (answeringQuestionIds.has(question.id)) return;
+
+    setFeedMessage(null);
+    setExpandedCommentId(question.id);
+    setAnsweringQuestionIds((ids) => new Set(ids).add(question.id));
+
+    try {
+      const res = await fetch("/api/answer-question", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: question.body }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setFeedMessage(data.error ?? "Could not generate an AI answer.");
+        return;
+      }
+
+      setComments((items) => {
+        const next = {
+          ...items,
+          [question.id]: [
+            `${currentUser?.username ?? "local_user"} AI: ${data.answer}`,
+            ...(items[question.id] ?? []),
+          ],
+        };
+        localStorage.setItem(COMMENTS_KEY, JSON.stringify(next));
+        return next;
+      });
+      setFeedMessage("AI answer added.");
+      window.setTimeout(() => setFeedMessage(null), 2500);
+    } catch {
+      setFeedMessage("Could not generate an AI answer.");
+    } finally {
+      setAnsweringQuestionIds((ids) => {
+        const next = new Set(ids);
+        next.delete(question.id);
+        return next;
+      });
+    }
+  }
+
   async function loadMore() {
     setLoading(true);
     const res = await fetch(`/api/questions?offset=${questions.length}`);
@@ -554,6 +602,7 @@ export default function QuestionsList({
           const downvoted = downvotedIds.has(q.id);
           const commentCount = comments[q.id]?.length ?? 0;
           const commentsOpen = expandedCommentId === q.id;
+          const answering = answeringQuestionIds.has(q.id);
 
           return (
             <li
@@ -624,6 +673,13 @@ export default function QuestionsList({
                     className="rounded px-2 py-1 hover:bg-[var(--reddit-card-muted)]"
                   >
                     Share
+                  </button>
+                  <button
+                    onClick={() => addAiAnswer(q)}
+                    disabled={answering}
+                    className="rounded px-2 py-1 text-[var(--reddit-blue)] hover:bg-[var(--reddit-card-muted)] disabled:opacity-50"
+                  >
+                    {answering ? "Answering..." : "AI Answer"}
                   </button>
                   <button
                     onClick={() => toggleSaved(q.id)}
