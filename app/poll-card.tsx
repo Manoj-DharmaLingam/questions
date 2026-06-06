@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useSyncExternalStore } from "react";
 import type { Poll } from "@/lib/polls";
 import {

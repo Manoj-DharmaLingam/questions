@@ -123,6 +123,7 @@ export default function QuestionsList({
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loading, setLoading] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [enhancingDraft, setEnhancingDraft] = useState(false);
   const [expandedCommentId, setExpandedCommentId] = useState<string | null>(
     null
   );
@@ -249,6 +250,43 @@ export default function QuestionsList({
       setFeedMessage("Could not create your post. Please try again.");
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function enhanceDraftQuestion() {
+    const question = draft.trim();
+
+    if (!question || enhancingDraft) {
+      setFeedMessage("Type a question first.");
+      return;
+    }
+
+    if (!onRequireAuth()) return;
+
+    setEnhancingDraft(true);
+    setFeedMessage(null);
+
+    try {
+      const res = await fetch("/api/enhance-question", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setFeedMessage(data.error ?? "Could not enhance your question.");
+        return;
+      }
+
+      setDraft(data.enhancedQuestion);
+      setFeedMessage("Question enhanced.");
+      createInputRef.current?.focus();
+      window.setTimeout(() => setFeedMessage(null), 2500);
+    } catch {
+      setFeedMessage("Could not enhance your question.");
+    } finally {
+      setEnhancingDraft(false);
     }
   }
 
@@ -432,18 +470,29 @@ export default function QuestionsList({
             kealvi
           </div>
           <div className="min-w-0 flex-1 space-y-2">
-            <input
-              ref={createInputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onFocus={() => {
-                if (!currentUser) onRequireAuth();
-              }}
-              placeholder={
-                currentUser ? `Create Post in ${activeCommunity}` : "Log in to create a post"
-              }
-              className="w-full rounded-md border border-[var(--reddit-border-soft)] bg-[var(--reddit-card-muted)] px-3 py-2 text-[var(--reddit-text)] outline-none placeholder:text-[var(--reddit-muted)] focus:border-[var(--reddit-blue)]"
-            />
+            <div className="flex gap-2">
+              <input
+                ref={createInputRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onFocus={() => {
+                  if (!currentUser) onRequireAuth();
+                }}
+                placeholder={
+                  currentUser ? `Create Post in ${activeCommunity}` : "Log in to create a post"
+                }
+                className="min-w-0 flex-1 rounded-md border border-[var(--reddit-border-soft)] bg-[var(--reddit-card-muted)] px-3 py-2 text-[var(--reddit-text)] outline-none placeholder:text-[var(--reddit-muted)] focus:border-[var(--reddit-blue)]"
+              />
+              <button
+                onClick={enhanceDraftQuestion}
+                disabled={!draft.trim() || enhancingDraft || posting}
+                className="rounded-md border border-[var(--reddit-border-soft)] px-3 py-2 text-sm font-bold text-[var(--reddit-blue)] hover:border-[var(--reddit-blue)] disabled:opacity-45"
+                title="Enhance question with Gemini"
+                aria-label="Enhance question with Gemini"
+              >
+                {enhancingDraft ? "..." : "AI"}
+              </button>
+            </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-[var(--reddit-muted)]">
                 Posting as {currentUser ? `${currentUser.username}` : "guest"}
