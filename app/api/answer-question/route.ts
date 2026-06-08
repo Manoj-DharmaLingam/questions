@@ -111,7 +111,7 @@ export async function POST(req: Request) {
       generationConfig: {
         temperature: 0.35,
         topP: 0.85,
-        maxOutputTokens: 320,
+        maxOutputTokens: 700,
       },
     }),
   });
@@ -134,7 +134,7 @@ export async function POST(req: Request) {
     );
   }
 
-  if (data.candidates?.[0]?.finishReason === "MAX_TOKENS" || !looksComplete(answer)) {
+  if (data.candidates?.[0]?.finishReason === "MAX_TOKENS") {
     return Response.json(
       { error: "Gemini returned an incomplete answer. Please try again." },
       { status: 502 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import QuestionsList from "./questions-list";
 import PollCard from "./poll-card";
 import ThemeToggle from "./theme-toggle";
@@ -87,7 +87,7 @@ export default function RedditShell({
   initialHasMore: boolean;
   initialPoll: Poll | null;
 }) {
-  const [user, setUser] = useState<User | null>(() => readSession());
+  const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authUsername, setAuthUsername] = useState("");
@@ -98,9 +98,12 @@ export default function RedditShell({
   const [activeCommunity, setActiveCommunity] = useState("kealvi");
   const [globalQuery, setGlobalQuery] = useState("");
   const [createSignal, setCreateSignal] = useState(0);
-  const [joinedCommunities, setJoinedCommunities] = useState<Set<string>>(
-    () => new Set(readJoinedCommunities())
-  );
+  const [joinedCommunities, setJoinedCommunities] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setUser(readSession());
+    setJoinedCommunities(new Set(readJoinedCommunities()));
+  }, []);
 
   function openAuth(mode: AuthMode) {
     setAuthMode(mode);
